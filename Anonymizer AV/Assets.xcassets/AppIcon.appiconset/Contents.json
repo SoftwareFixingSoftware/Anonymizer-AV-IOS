@@ -1,7 +1,10 @@
 {
   "images" : [
     {
+<<<<<<< HEAD
       "filename" : "shield1024x1024.png",
+=======
+>>>>>>> main
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
