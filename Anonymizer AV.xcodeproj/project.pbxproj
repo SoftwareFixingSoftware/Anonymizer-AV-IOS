@@ -6,7 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A01C5D242E5799F900889C1F /* main.hdb in Resources */ = {isa = PBXBuildFile; fileRef = A01C5D232E5799F900889C1F /* main.hdb */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
+		A01C5D232E5799F900889C1F /* main.hdb */ = {isa = PBXFileReference; lastKnownFileType = text; path = main.hdb; sourceTree = "<group>"; };
 		A09BCCCC2E52BC5D00BC201B /* Anonymizer AV.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Anonymizer AV.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -32,6 +37,7 @@
 		A09BCCC32E52BC5D00BC201B = {
 			isa = PBXGroup;
 			children = (
+				A01C5D232E5799F900889C1F /* main.hdb */,
 				A09BCCCE2E52BC5D00BC201B /* Anonymizer AV */,
 				A09BCCCD2E52BC5D00BC201B /* Products */,
 			);
@@ -109,6 +115,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A01C5D242E5799F900889C1F /* main.hdb in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

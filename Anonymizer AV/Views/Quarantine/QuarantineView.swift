@@ -35,7 +35,7 @@ struct QuarantineView: View {
                     }
                     .listStyle(PlainListStyle())
                     .refreshable {
-                        vm.loadFilesFromRepo()
+                        vm.loadFilesFromCoreData()
                     }
                 }
             }
@@ -54,7 +54,7 @@ struct QuarantineView: View {
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { vm.loadFilesFromRepo() }) {
+                    Button(action: { vm.loadFilesFromCoreData() }) {
                         Image(systemName: "arrow.clockwise")
                     }
                 }

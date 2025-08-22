@@ -1,97 +1,73 @@
-//
-//  ScanOptionsView.swift
-//  Anonymizer AV
-//
-
 import SwiftUI
 
 struct ScanOptionsView: View {
-    @State private var selectedFiles: [URL] = []
+    @StateObject private var scanSession = ScanSession() // root session
     @State private var showPicker = false
-    
+
     var body: some View {
         NavigationStack {
             VStack {
                 Spacer()
-                
-                // Centered content in a card
-                QuarantineCard {
-                    VStack(spacing: 20) {
-                        
-                        // Title
-                        Text("Choose Scan Option")
-                            .font(.title3)
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                        
-                        // Select files card
-                        Button(action: { showPicker = true }) {
-                            HStack {
-                                Image(systemName: "doc.on.doc.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundColor(.accentCyan)
-                                Text("Select Files to Scan")
-                                    .font(.body)
-                                Spacer()
-                            }
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color(.secondarySystemBackground))
-                            )
+
+                VStack(spacing: 20) {
+                    Text("Choose Files to Scan")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+
+                    // File picker button
+                    Button(action: { showPicker = true }) {
+                        HStack {
+                            Image(systemName: "doc.on.doc.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(.accentColor)
+                            Text("Select Files")
+                            Spacer()
                         }
-                        .buttonStyle(PlainButtonStyle())
-                        .sheet(isPresented: $showPicker) {
-                            DocumentPicker { urls in
-                                selectedFiles = urls
-                            }
-                        }
-                        
-                        // Selected file count
-                        if !selectedFiles.isEmpty {
-                            Text("\(selectedFiles.count) file(s) selected")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        // Start Scan button
-                        Button(action: {
-                            // TODO: Hook up to your scan logic
-                        }) {
-                            Label("Start Scan", systemImage: "waveform.path.ecg")
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(RoundedRectangle(cornerRadius: 10).fill(Color.accentCyan))
-                                .foregroundColor(.white)
-                        }
-                        .disabled(selectedFiles.isEmpty)
-                        
-                        // Full Scan button
-                        Button(action: {
-                            // TODO: Hook up to your full scan logic
-                        }) {
-                            Label("Full Device Scan", systemImage: "desktopcomputer.trianglebadge.exclamationmark")
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(RoundedRectangle(cornerRadius: 10).fill(Color.orange))
-                                .foregroundColor(.white)
+                        .padding()
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
+                    }
+                    .buttonStyle(.plain)
+                    .sheet(isPresented: $showPicker) {
+                        DocumentPicker { urls in
+                            // set selection only — do not auto-start scanning yet
+                            scanSession.selectedFiles = urls
                         }
                     }
+
+                    // Start Scan button (only visible when files selected)
+                    if !scanSession.selectedFiles.isEmpty {
+                        Button("Start Scan") {
+                            // Start scanning using the selected files.
+                            // This sets scanSession.showProgress = true inside startScan.
+                            scanSession.startScan(with: scanSession.selectedFiles)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.accentColor))
+                        .foregroundColor(.white)
+                    }
                 }
-                .frame(maxWidth: 500) // keeps it compact in larger screens
-                
+                .frame(maxWidth: 500)
+
                 Spacer()
             }
             .padding()
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationTitle("Scan")
-        }
-    }
-}
 
-// MARK: - Preview
-struct ScanOptionsView_Previews: PreviewProvider {
-    static var previews: some View {
-        ScanOptionsView()
+            // IMPORTANT: place both navigationDestination modifiers on the same NavigationStack.
+            // When showProgress flips true, ProgressView is pushed.
+            // When finishScan() sets showResults = true, Results will be pushed on top.
+            .navigationDestination(isPresented: $scanSession.showProgress) {
+                ScanProgressView()
+                    .environmentObject(scanSession)
+            }
+            .navigationDestination(isPresented: $scanSession.showResults) {
+                ScanResultsView()
+                    .environmentObject(scanSession)
+            }
+        }
+        // provide session to any other views presented modally
+        .environmentObject(scanSession)
     }
 }

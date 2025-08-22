@@ -1,2 +1,12 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="23605" systemVersion="24D70" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithSwiftData="YES" userDefinedModelVersionIdentifier=""/>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="23605" systemVersion="24D70" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithSwiftData="YES" userDefinedModelVersionIdentifier="">
+    <entity name="QuarantineEntity" representedClassName=".QuarantineEntity" syncable="YES">
+        <attribute name="classification" attributeType="String"/>
+        <attribute name="dateQuarantined" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="fileName" attributeType="String"/>
+        <attribute name="filePath" attributeType="String"/>
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="originalPath" attributeType="String"/>
+        <attribute name="reason" attributeType="String"/>
+    </entity>
+</model>

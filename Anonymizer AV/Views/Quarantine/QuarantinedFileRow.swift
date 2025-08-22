@@ -1,7 +1,4 @@
 // QuarantinedFileRow.swift
-// Anonymizer AV
-//
-
 import SwiftUI
 
 struct QuarantinedFileRow: View {
@@ -18,11 +15,20 @@ struct QuarantinedFileRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // File Name
-            Text(file.fileName)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.primary)
-                .lineLimit(1)
+            // File Name and classification
+            HStack {
+                Text(file.fileName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                Spacer()
+                Text(file.classification)
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.gray.opacity(0.12)))
+                    .foregroundColor(.secondary)
+            }
 
             // Date Quarantined
             Text("Quarantined: \(Self.dateFormatter.string(from: file.dateQuarantined))")
@@ -30,7 +36,7 @@ struct QuarantinedFileRow: View {
                 .foregroundColor(.secondary)
 
             // Reason (optional)
-            if let reason = file.reason {
+            if let reason = file.reason, !reason.isEmpty {
                 Text(reason)
                     .font(.caption)
                     .foregroundColor(.secondary)
