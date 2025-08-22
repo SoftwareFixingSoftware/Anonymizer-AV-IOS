@@ -122,6 +122,9 @@ struct DashboardView: View {
             .navigationDestination(for: String.self) { route in
                 if route == "history" { HistoryView() }
                 else if route == "logs" { HistoryView() }
+                else if route == "breach" { BreachScanView() }
+                else if route == "browser" {SecureBrowserView()}
+
             }
         }
     }
@@ -129,12 +132,17 @@ struct DashboardView: View {
     // MARK: - Feature Tap Handler
     private func handleFeatureTap(_ feature: Feature) {
         switch feature.title {
-        case "Deep Scan", "Breach Scan":
+        case "Deep Scan":
             selectedTab = 1
         case "Scan History":
             path.append("history")
         case "Logs":
             path.append("logs")
+        case "Breach Scan":
+            path.append("breach")
+            
+        case "Secure Browser":
+            path.append("browser")
         default:
             print("\(feature.title) tapped")
         }

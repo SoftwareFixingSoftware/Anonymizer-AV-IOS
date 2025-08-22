@@ -8,10 +8,32 @@
 
 /* Begin PBXBuildFile section */
 		A01C5D242E5799F900889C1F /* main.hdb in Resources */ = {isa = PBXBuildFile; fileRef = A01C5D232E5799F900889C1F /* main.hdb */; };
+		A07A96972E5812410082B8C3 /* breach1.txt in Resources */ = {isa = PBXBuildFile; fileRef = A07A96962E5812410082B8C3 /* breach1.txt */; };
+		A07A96A42E5816F60082B8C3 /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = A07A96A32E5816F60082B8C3 /* Lottie */; };
+		A07A96A82E5818030082B8C3 /* radar_scan.json in Resources */ = {isa = PBXBuildFile; fileRef = A07A96A72E5818030082B8C3 /* radar_scan.json */; };
+		A07A96BC2E58740B0082B8C3 /* url_blacklist.txt in Resources */ = {isa = PBXBuildFile; fileRef = A07A96BA2E58740B0082B8C3 /* url_blacklist.txt */; };
+		A07A96BD2E58740B0082B8C3 /* wifi_blacklist.txt in Resources */ = {isa = PBXBuildFile; fileRef = A07A96BB2E58740B0082B8C3 /* wifi_blacklist.txt */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A07A96AF2E581E9C0082B8C3 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		A01C5D232E5799F900889C1F /* main.hdb */ = {isa = PBXFileReference; lastKnownFileType = text; path = main.hdb; sourceTree = "<group>"; };
+		A07A96962E5812410082B8C3 /* breach1.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = breach1.txt; sourceTree = "<group>"; };
+		A07A96A72E5818030082B8C3 /* radar_scan.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = radar_scan.json; sourceTree = "<group>"; };
+		A07A96BA2E58740B0082B8C3 /* url_blacklist.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = url_blacklist.txt; sourceTree = "<group>"; };
+		A07A96BB2E58740B0082B8C3 /* wifi_blacklist.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = wifi_blacklist.txt; sourceTree = "<group>"; };
 		A09BCCCC2E52BC5D00BC201B /* Anonymizer AV.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Anonymizer AV.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -28,6 +50,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A07A96A42E5816F60082B8C3 /* Lottie in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -37,6 +60,10 @@
 		A09BCCC32E52BC5D00BC201B = {
 			isa = PBXGroup;
 			children = (
+				A07A96BA2E58740B0082B8C3 /* url_blacklist.txt */,
+				A07A96BB2E58740B0082B8C3 /* wifi_blacklist.txt */,
+				A07A96A72E5818030082B8C3 /* radar_scan.json */,
+				A07A96962E5812410082B8C3 /* breach1.txt */,
 				A01C5D232E5799F900889C1F /* main.hdb */,
 				A09BCCCE2E52BC5D00BC201B /* Anonymizer AV */,
 				A09BCCCD2E52BC5D00BC201B /* Products */,
@@ -61,6 +88,7 @@
 				A09BCCC82E52BC5D00BC201B /* Sources */,
 				A09BCCC92E52BC5D00BC201B /* Frameworks */,
 				A09BCCCA2E52BC5D00BC201B /* Resources */,
+				A07A96AF2E581E9C0082B8C3 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -71,6 +99,7 @@
 			);
 			name = "Anonymizer AV";
 			packageProductDependencies = (
+				A07A96A32E5816F60082B8C3 /* Lottie */,
 			);
 			productName = "Anonymizer AV";
 			productReference = A09BCCCC2E52BC5D00BC201B /* Anonymizer AV.app */;
@@ -100,6 +129,9 @@
 			);
 			mainGroup = A09BCCC32E52BC5D00BC201B;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A07A96A22E5816F60082B8C3 /* XCRemoteSwiftPackageReference "lottie-ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A09BCCCD2E52BC5D00BC201B /* Products */;
 			projectDirPath = "";
@@ -115,7 +147,11 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A07A96A82E5818030082B8C3 /* radar_scan.json in Resources */,
 				A01C5D242E5799F900889C1F /* main.hdb in Resources */,
+				A07A96972E5812410082B8C3 /* breach1.txt in Resources */,
+				A07A96BC2E58740B0082B8C3 /* url_blacklist.txt in Resources */,
+				A07A96BD2E58740B0082B8C3 /* wifi_blacklist.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -331,6 +367,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A07A96A22E5816F60082B8C3 /* XCRemoteSwiftPackageReference "lottie-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/airbnb/lottie-ios.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.5.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A07A96A32E5816F60082B8C3 /* Lottie */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A07A96A22E5816F60082B8C3 /* XCRemoteSwiftPackageReference "lottie-ios" */;
+			productName = Lottie;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A09BCCC42E52BC5D00BC201B /* Project object */;
 }
