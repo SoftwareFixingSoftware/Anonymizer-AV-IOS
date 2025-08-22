@@ -124,6 +124,7 @@ struct DashboardView: View {
                 else if route == "logs" { HistoryView() }
                 else if route == "breach" { BreachScanView() }
                 else if route == "browser" {SecureBrowserView()}
+                else if route == "Wifi" {WifiSecurityView()}
 
             }
         }
@@ -143,6 +144,8 @@ struct DashboardView: View {
             
         case "Secure Browser":
             path.append("browser")
+        case "Wifi":
+            path.append("Wifi")
         default:
             print("\(feature.title) tapped")
         }
