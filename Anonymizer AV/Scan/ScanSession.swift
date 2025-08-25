@@ -1,3 +1,10 @@
+//
+//  ScanSession.swift
+//  Anonymizer AV
+//
+//  Central scan state & progress tracking
+//
+
 import SwiftUI
 import CryptoKit
 
@@ -32,7 +39,7 @@ class ScanSession: ObservableObject {
         scanTask?.cancel()
         scanTask = nil
 
-        // init state (on MainActor already because @MainActor for class)
+        // init state
         selectedFiles = files
         threats = []
         consoleLines = ["Initializing scan..."]
@@ -44,14 +51,12 @@ class ScanSession: ObservableObject {
         showProgress = true
         showResults = false
 
-        // Launch detached task to do background work, but keep calls to
-        // signature scanning and UI updates on MainActor where necessary.
+        // Launch detached task to do background work
         scanTask = Task.detached { [weak self] in
             guard let self = self else { return }
             let total = files.count
 
-            // Ensure signatures are loaded BEFORE scanning begins.
-            // Run loadSignatures on the MainActor to be safe.
+            // Ensure signatures are loaded BEFORE scanning begins
             await MainActor.run {
                 self.logConsole("Loading signature database...")
                 SignatureScanner.loadSignatures()
@@ -59,7 +64,6 @@ class ScanSession: ObservableObject {
             }
 
             for (index, file) in files.enumerated() {
-                // cooperative cancellation
                 if Task.isCancelled { break }
 
                 // update UI about current file
@@ -70,7 +74,7 @@ class ScanSession: ObservableObject {
                     ScanningLogger.shared.logFileScanStart(file)
                 }
 
-                // Hash file off-main (safe)
+                // Hash file off-main
                 var digestHex: String? = nil
                 var fileSize = 0
                 do {
@@ -86,18 +90,14 @@ class ScanSession: ObservableObject {
                 }
 
                 if let md5 = digestHex {
-                    // Debug: show we are about to call the scanner
                     await MainActor.run {
                         self.logConsole("[scan] calling SignatureScanner for \(file.lastPathComponent) md5=\(md5)")
                     }
 
-                    // Call the signature scanner on MainActor to avoid thread-safety issues.
-                    // If your SignatureScanner is thread-safe, you can call it off-main to improve throughput.
                     let threat: String? = await MainActor.run {
                         SignatureScanner.scanHash(md5Hex: md5, size: fileSize)
                     }
 
-                    // Debug log of result
                     await MainActor.run {
                         self.logConsole("[scan] SignatureScanner returned: \(String(describing: threat)) for \(file.lastPathComponent)")
                     }
@@ -117,10 +117,8 @@ class ScanSession: ObservableObject {
                     }
                 }
 
-                // small yield to allow cancellation/animation
-                try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+                try? await Task.sleep(nanoseconds: 50_000_000) // 50ms yield
 
-                // mark progress for completed file
                 await MainActor.run {
                     self.progressCount = index + 1
                     self.progressFraction = total > 0 ? Double(index + 1) / Double(total) : 1.0
@@ -131,32 +129,36 @@ class ScanSession: ObservableObject {
                     await MainActor.run {
                         self.logConsole("Scan completed. Scanned \(total) files.")
                         ScanningLogger.shared.logScanComplete(totalFiles: total, threatsFound: self.threats.count)
-                        // show results (this will drive navigation)
                         self.finishScan()
                     }
                 }
-            } // for
+            }
 
-            // If task was cancelled externally, make sure we clear running flags
+            // If task was cancelled externally, clear flags
             await MainActor.run {
                 if Task.isCancelled {
                     self.logConsole("Scan cancelled.")
                     self.isScanning = false
                     self.isFinished = false
-                    // keep selectedFiles if you want the user to be able to restart
                     self.progressFraction = 0.0
                     self.currentFile = ""
                     self.showProgress = false
                     self.showResults = false
                 }
             }
-        } // Task.detached
+        }
     }
 
     func finishScan() {
         isScanning = false
         isFinished = true
         showResults = true
+
+        //  Log a persistent history entry
+        let summary = "Scanned \(progressCount) files, Threats: \(threats.count)"
+        logConsole(summary)
+        let entry = ScanLogManager.makeLogEntry(details: summary)
+        ScanLogManager.saveLog(entry)
     }
 
     /// Cancel an in-progress scan and return to options.
@@ -164,7 +166,6 @@ class ScanSession: ObservableObject {
         scanTask?.cancel()
         scanTask = nil
 
-        // Clear active flags but keep selectedFiles so user can re-run
         isScanning = false
         isFinished = false
         progressFraction = 0.0
@@ -198,12 +199,12 @@ class ScanSession: ObservableObject {
     // MARK: - helpers
 
     private func logConsole(_ msg: String) {
-        // keep a short history
         if consoleLines.last != msg {
             consoleLines.append(msg)
-            if consoleLines.count > 200 { consoleLines.removeFirst(consoleLines.count - 200) }
+            if consoleLines.count > 200 {
+                consoleLines.removeFirst(consoleLines.count - 200)
+            }
         }
-        // also print to Xcode console for debugging
         print(msg)
     }
 }

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- App Display Name -->
+    <key>CFBundleDisplayName</key>
+    <string>Anonymizer AV</string>
+
+    <!-- Bundle Identifier -->
+    <key>CFBundleIdentifier</key>
+    <string>com.luke.anonymizerav</string>
+
+    <!-- App Version -->
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+
+    <!-- Privacy permissions -->
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>We need access to your photos to detect duplicates.</string>
+
+    <key>NSCameraUsageDescription</key>
+    <string>Camera access is required for scanning photos.</string>
+
+    <key>NSContactsUsageDescription</key>
+    <string>We need access to your contacts to detect duplicates.</string>
+
+    <key>NSCalendarsUsageDescription</key>
+    <string>We need access to your calendar events for scanning duplicates.</string>
+
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Microphone access is required for recording audio (optional).</string>
+
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Location access is optional and used for location-based features.</string>
+
+    <!-- URL Types (existing) -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict/>
+    </array>
+</dict>
+</plist>

@@ -18,10 +18,8 @@ struct DashboardView: View {
     @State private var path: [String] = []
     
     private let coreFeatures: [Feature] = [
-        Feature(iconName: "shield.fill", title: "Real-time Protection", description: "Constantly scans"),
-        Feature(iconName: "exclamationmark.shield.fill", title: "Breach Scan", description: "Assure your Data"),
-        Feature(iconName: "magnifyingglass", title: "Deep Scan", description: "Thorough check"),
-        Feature(iconName: "qrcode.viewfinder", title: "QR Code", description: "Clean scan"),
+         Feature(iconName: "exclamationmark.shield.fill", title: "Breach Scan", description: "Assure your Data"),
+         Feature(iconName: "qrcode.viewfinder", title: "QR Code", description: "Clean scan"),
         Feature(iconName: "clock.fill", title: "Scan History", description: "Previous scans")
     ]
     
@@ -125,6 +123,9 @@ struct DashboardView: View {
                 else if route == "breach" { BreachScanView() }
                 else if route == "browser" {SecureBrowserView()}
                 else if route == "Wifi" {WifiSecurityView()}
+                else if route == "qr" {QrScannerView()}
+                else if route == "Optimization" { Optimization() }
+
 
             }
         }
@@ -146,6 +147,10 @@ struct DashboardView: View {
             path.append("browser")
         case "Wifi":
             path.append("Wifi")
+        case "QR Code":
+            path.append("qr")
+        case "Optimization":
+            path.append("Optimization")
         default:
             print("\(feature.title) tapped")
         }
