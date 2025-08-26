@@ -18,8 +18,8 @@ struct DashboardView: View {
     @State private var path: [String] = []
     
     private let coreFeatures: [Feature] = [
-         Feature(iconName: "exclamationmark.shield.fill", title: "Breach Scan", description: "Assure your Data"),
-         Feature(iconName: "qrcode.viewfinder", title: "QR Code", description: "Clean scan"),
+        Feature(iconName: "exclamationmark.shield.fill", title: "Breach Scan", description: "Assure your Data"),
+        Feature(iconName: "qrcode.viewfinder", title: "QR Code", description: "Clean scan"),
         Feature(iconName: "clock.fill", title: "Scan History", description: "Previous scans")
     ]
     
@@ -47,7 +47,7 @@ struct DashboardView: View {
                         }
                     }
                     
-                    // Scan Now Button (kept accent color)
+                    // Scan Now Button
                     Button(action: { selectedTab = 1 }) {
                         Text("Scan Now")
                             .font(.headline)
@@ -118,15 +118,22 @@ struct DashboardView: View {
                 loadLastScan()
             }
             .navigationDestination(for: String.self) { route in
-                if route == "history" { HistoryView() }
-                else if route == "logs" { HistoryView() }
-                else if route == "breach" { BreachScanView() }
-                else if route == "browser" {SecureBrowserView()}
-                else if route == "Wifi" {WifiSecurityView()}
-                else if route == "qr" {QrScannerView()}
-                else if route == "Optimization" { Optimization() }
-
-
+                switch route {
+                case "history", "logs":
+                    HistoryView()
+                case "breach":
+                    BreachScanView()
+                case "browser":
+                    SecureBrowserView()
+                case "Wifi":
+                    WifiSecurityView()
+                case "qr":
+                    QrScannerView()
+                case "Optimization":
+                    Optimization()
+                default:
+                    EmptyView()
+                }
             }
         }
     }
@@ -142,7 +149,6 @@ struct DashboardView: View {
             path.append("logs")
         case "Breach Scan":
             path.append("breach")
-            
         case "Secure Browser":
             path.append("browser")
         case "Wifi":
@@ -164,8 +170,36 @@ struct DashboardView: View {
     }
     
     private func loadLastScan() {
-        lastScan = "Last scan: Today, 2:45 PM"
-        threatsFound = 3
+        let logs = ScanLogManager.getLogs()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        
+        let datedLogs: [(Date, String)] = logs.compactMap { log in
+            let components = log.components(separatedBy: " — ")
+            guard components.count == 2, let date = formatter.date(from: components[0]) else { return nil }
+            return (date, components[1])
+        }
+        
+        if let latest = datedLogs.sorted(by: { $0.0 < $1.0 }).last {
+            let displayFormatter = DateFormatter()
+            displayFormatter.dateStyle = .medium
+            displayFormatter.timeStyle = .short
+            lastScan = "Last scan: \(displayFormatter.string(from: latest.0))"
+            threatsFound = extractThreats(from: latest.1)
+        } else {
+            lastScan = "No scans yet"
+            threatsFound = 0
+        }
+    }
+    
+    private func extractThreats(from details: String) -> Int {
+        let parts = details.components(separatedBy: " ")
+        for (i, part) in parts.enumerated() {
+            if part.lowercased().contains("threat"), i > 0 {
+                return Int(parts[i-1]) ?? 0
+            }
+        }
+        return 0
     }
 }
 
