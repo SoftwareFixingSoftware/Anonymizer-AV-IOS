@@ -1,7 +1,5 @@
-//
 //  AnonymizerAV.swift
-//  Anonymizer AV - production implementation (uses external LottieView.swift)
-//  Production-ready cleaned and hardened version (full file, FULL SWEEP REMOVED)
+//  Anonymizer AV - calendar duplicate handling (UI: locate only, no delete/merge)
 //
 
 import SwiftUI
@@ -58,7 +56,7 @@ struct ScanSummary {
     var calendarCount = 0
 }
 
-// MARK: - ScannerManager (FULL SWEEP REMOVED)
+// MARK: - ScannerManager
 final class ScannerManager: ObservableObject {
     @Published var statusText: String = "Idle"
     @Published var progressText: String = ""
@@ -83,6 +81,8 @@ final class ScannerManager: ObservableObject {
         currentTask = Task { [weak self] in
             await MainActor.run {
                 guard let self = self else { return }
+                // clear all previous buckets to ensure fresh results
+                self.buckets.removeAll()
                 self.isScanning = true
                 self.statusText = mediaType == .image ? "Preparing image scan..." : "Preparing video scan..."
                 self.progressText = ""
@@ -123,6 +123,8 @@ final class ScannerManager: ObservableObject {
         currentTask = Task { [weak self] in
             await MainActor.run {
                 guard let self = self else { return }
+                // clear all previous buckets to ensure fresh results
+                self.buckets.removeAll()
                 self.isScanning = true
                 self.statusText = "Preparing contacts scan..."
                 self.progressText = ""
@@ -157,6 +159,8 @@ final class ScannerManager: ObservableObject {
         currentTask = Task { [weak self] in
             await MainActor.run {
                 guard let self = self else { return }
+                // clear all previous buckets to ensure fresh results
+                self.buckets.removeAll()
                 self.isScanning = true
                 self.statusText = "Preparing calendar scan..."
                 self.progressText = ""
@@ -213,7 +217,7 @@ final class ScannerManager: ObservableObject {
         isScanning = false
     }
 
-    // Safe upsert helpers (modified to only include media/contact/calendar)
+    // Safe upsert helpers (media/contact/calendar)
     @MainActor private func handleAppendOrRemoveMedia(title: String, groups: [[String]], removeIfEmpty: Bool = true) {
         if groups.isEmpty {
             if removeIfEmpty {
@@ -278,7 +282,7 @@ final class ScannerManager: ObservableObject {
         }
     }
 
-    // MARK: - Scanners (same implementations)
+    // MARK: - Scanners
     private func scanMediaAssets(of mediaType: PHAssetMediaType) async throws -> [[String]] {
         var status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         if status == .notDetermined {
@@ -463,8 +467,9 @@ struct MainCardsView: View {
     @StateObject private var scanner = ScannerManager()
     @State private var showResultsSheet = false
 
-    @State private var lastActionRecord: ActionRecord? = nil
-    @State private var showUndoToast: Bool = false
+    // show non-destructive backup notification toast
+    @State private var lastBackupRecord: ActionRecord? = nil
+    @State private var showBackupToast: Bool = false
 
     @State private var showErrorAlert: Bool = false
     @State private var alertMessage: String = ""
@@ -474,10 +479,27 @@ struct MainCardsView: View {
 
     private let cardCorner: CGFloat = 16
 
+    // recommended sizes — tweak these to taste
+    private var maxAnimationSize: CGFloat { 160 }               // maximum width/height for Lottie radar
+    private var overlayPadding: CGFloat { 16 }                  // padding inside the scanning overlay
+    private var fabSize: CGFloat { 52 }                         // diameter of floating results button
+
+    private var scanningAnimationSize: CGFloat {
+        // use up to 45% of width but never exceed maxAnimationSize
+        let width = UIScreen.main.bounds.width
+        return min(width * 0.45, maxAnimationSize)
+    }
+
+    // Lottie + pulse controls (optional visual polish)
+    @State private var lottieColor: Color = .cyan
+    @State private var animationSpeed: CGFloat = 1.5
+    @State private var playAnimation: Bool = false   // control playback
+    @State private var pulse: Bool = false           // controls glow pulse
+
     var body: some View {
         ZStack {
             ScrollView {
-                VStack(spacing: 12) {
+                VStack(spacing: 14) {
                     header
                     card(title: "Photos", subtitle: "\(scanner.summary.photosCount) items", iconName: "photo.on.rectangle", tint: .blue) {
                         scanner.startMediaSweep(of: .image)
@@ -497,39 +519,68 @@ struct MainCardsView: View {
 
                     Spacer(minLength: 48)
                 }
-                .padding(16)
+                .padding(18)
             }
             .background(Color(UIColor.systemBackground))
             .edgesIgnoringSafeArea(.all)
 
+            // Scanning overlay (Breach-like style)
             if scanner.isScanning {
                 Color.black.opacity(0.6).edgesIgnoringSafeArea(.all)
-                VStack(spacing: 16) {
-                    LottieView(name: "radar_scan", loopMode: .loop, speed: 1.5, play: scanner.isScanning)
-                        .frame(width: 200, height: 200)
-                    Text(scanner.statusText)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.white)
-                    Text(scanner.progressText)
-                        .font(.system(size: 14))
-                        .foregroundColor(.gray)
 
-                    Button(action: { scanner.stopScan() }) {
-                        Text("Cancel Scan")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.clear)
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.blue, lineWidth: 1))
-                            .foregroundColor(.white)
+                ZStack {
+                    Circle()
+                        .fill(lottieColor.opacity(0.22))
+                        .frame(width: scanningAnimationSize * 1.6, height: scanningAnimationSize * 1.6)
+                        .scaleEffect(pulse ? 1.2 : 0.8)
+                        .opacity(pulse ? 0.0 : 1.0)
+                        .animation(Animation.easeOut(duration: 1.2).repeatForever(autoreverses: false), value: pulse)
+
+                    LottieView(name: "radar_scan", loopMode: .loop, speed: Double(animationSpeed), play: playAnimation)
+                        .frame(width: scanningAnimationSize, height: scanningAnimationSize)
+                        .background(lottieColor.opacity(0.12))
+                        .clipShape(Circle())
+                        .allowsHitTesting(false)
+
+                    VStack(spacing: 8) {
+                        Spacer(minLength: scanningAnimationSize/2 + 12)
+                        VStack(spacing: 6) {
+                            Text(scanner.statusText)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.white)
+                            Text(scanner.progressText)
+                                .font(.system(size: 13))
+                                .foregroundColor(.gray)
+                            Button(action: { scanner.stopScan() }) {
+                                Text("Cancel Scan")
+                                    .font(.subheadline)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(Color.clear)
+                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.blue, lineWidth: 1))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.horizontal, 24)
+                            .frame(maxWidth: 260)
+                        }
+                        Spacer(minLength: 8)
                     }
-                    .padding(.horizontal, 24)
                 }
-                .padding(24)
+                .padding(overlayPadding)
                 .background(Color(UIColor.secondarySystemBackground))
-                .cornerRadius(16)
+                .cornerRadius(12)
                 .padding(24)
                 .transition(.opacity)
+                .onAppear {
+                    lottieColor = .cyan
+                    animationSpeed = 1.5
+                    playAnimation = true
+                    pulse = true
+                }
+                .onDisappear {
+                    playAnimation = false
+                    pulse = false
+                }
             }
 
             VStack {
@@ -539,38 +590,25 @@ struct MainCardsView: View {
                     if !scanner.buckets.isEmpty {
                         Button(action: { showResultsSheet = true }) {
                             Image(systemName: "list.bullet")
-                                .padding()
+                                .font(.system(size: 20, weight: .semibold))
+                                .frame(width: fabSize, height: fabSize)
                                 .background(Color.blue)
                                 .foregroundColor(.white)
                                 .clipShape(Circle())
-                                .shadow(radius: 8)
+                                .shadow(radius: 6)
                         }
                         .padding()
                     }
                 }
             }
 
-            if let rec = lastActionRecord, showUndoToast {
+            // Backup toast (non-destructive): show summary only, auto-dismiss
+            if let rec = lastBackupRecord, showBackupToast {
                 VStack {
                     Spacer()
                     HStack {
                         Text(rec.summary).foregroundColor(.white)
                         Spacer()
-                        Button("Undo") {
-                            Task {
-                                do {
-                                    try await OutcomeHandler.shared.undo(rec)
-                                    OutcomeHandler.shared.removeRecord(id: rec.id)
-                                    lastActionRecord = nil
-                                    showUndoToast = false
-                                } catch {
-                                    NSLog("Undo failed: \(error)")
-                                    alertMessage = "Undo failed: \(error.localizedDescription)"
-                                    showErrorAlert = true
-                                }
-                            }
-                        }
-                        .foregroundColor(.white)
                     }
                     .padding()
                     .background(Color.black.opacity(0.8))
@@ -578,7 +616,7 @@ struct MainCardsView: View {
                     .padding()
                 }
                 .transition(.move(edge: .bottom))
-                .animation(.easeInOut, value: showUndoToast)
+                .animation(.easeInOut, value: showBackupToast)
             }
 
             if showNoDuplicatesToast {
@@ -601,10 +639,8 @@ struct MainCardsView: View {
             }
         }
         .sheet(isPresented: $showResultsSheet) {
-            ResultsListView(onAction: { action, bucketIndex, groupIndex in
-                Task { await handleResultAction(action: action, bucketIndex: bucketIndex, groupIndex: groupIndex) }
-            })
-            .environmentObject(scanner)
+            ResultsListView()
+                .environmentObject(scanner)
         }
         .environmentObject(scanner)
         .alert(isPresented: $showErrorAlert) {
@@ -632,11 +668,18 @@ struct MainCardsView: View {
                 await MainActor.run { scanner.scanFinishedWithNoDuplicates = false }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .didCommitOutcomeAction)) { note in
+        // Listen for safe backup records (non-destructive)
+        .onReceive(NotificationCenter.default.publisher(for: .didCreateBackupRecord)) { note in
             guard let rec = note.object as? ActionRecord else { return }
             Task { @MainActor in
-                self.lastActionRecord = rec
-                self.showUndoToast = true
+                self.lastBackupRecord = rec
+                self.showBackupToast = true
+                // auto-dismiss after 2 seconds
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await MainActor.run {
+                    self.showBackupToast = false
+                    self.lastBackupRecord = nil
+                }
             }
         }
     }
@@ -653,95 +696,38 @@ struct MainCardsView: View {
         .padding(.bottom, 12)
     }
 
+    // Larger card implementation for bigger optimization boxes
     private func card(title: String, subtitle: String, iconName: String, tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack {
                 Image(systemName: iconName)
                     .resizable()
-                    .frame(width: 44, height: 44)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 56, height: 56)
                     .foregroundColor(tint)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.headline).foregroundColor(.white)
-                    Text(subtitle).font(.subheadline).foregroundColor(.gray)
+                    .padding(.trailing, 8)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title).font(.system(size: 18, weight: .semibold)).foregroundColor(.white)
+                    Text(subtitle).font(.system(size: 14)).foregroundColor(.gray)
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
                     .foregroundColor(.gray)
             }
-            .padding(16)
+            .padding(.vertical, 18)
+            .padding(.horizontal, 16)
+            .frame(minHeight: 110)
             .background(Color(UIColor.systemGray6))
-            .cornerRadius(12)
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(UIColor.systemGray4), lineWidth: 1))
+            .cornerRadius(16)
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color(UIColor.systemGray4), lineWidth: 1))
         }
         .buttonStyle(PlainButtonStyle())
     }
-
-    private func handleResultAction(action: ResultsAction, bucketIndex: Int, groupIndex: Int) async {
-        NSLog("[UI] handleResultAction START action=\(action) bucket=\(bucketIndex) group=\(groupIndex)")
-        defer { NSLog("[UI] handleResultAction   END action=\(action) bucket=\(bucketIndex) group=\(groupIndex)") }
-
-        await MainActor.run {
-            guard bucketIndex < scanner.buckets.count else { return }
-        }
-
-        let bucket = await MainActor.run { scanner.buckets.indices.contains(bucketIndex) ? scanner.buckets[bucketIndex] : nil }
-        guard let bucketUnwrapped = bucket else { return }
-
-        switch (bucketUnwrapped, action) {
-        case (.media(_, let idGroups), .deleteAll):
-            // Media delete as before
-            guard idGroups.indices.contains(groupIndex) else { return }
-            let ids = idGroups[groupIndex]
-            do {
-                NSLog("[UI] committing delete media for \(ids.count) assets")
-                let rec = try await OutcomeHandler.shared.commitDeleteMedia(localIdentifiers: ids)
-                await MainActor.run {
-                    self.lastActionRecord = rec
-                    self.showUndoToast = true
-                }
-                await MainActor.run {
-                    guard bucketIndex < scanner.buckets.count else { return }
-                    var newBuckets = scanner.buckets
-                    if case .media(let title, var g) = newBuckets[bucketIndex] {
-                        if g.indices.contains(groupIndex) {
-                            g.remove(at: groupIndex)
-                            if g.isEmpty { newBuckets.remove(at: bucketIndex) }
-                            else { newBuckets[bucketIndex] = .media(title: title, groups: g) }
-                            scanner.buckets = newBuckets
-                        }
-                    }
-                }
-            } catch {
-                NSLog("[Outcome] delete media failed: \(error)")
-                await MainActor.run {
-                    alertMessage = "Failed to delete media: \(error.localizedDescription)"
-                    showErrorAlert = true
-                }
-            }
-
-        case (.contact(_, _), _):
-            // Contacts actions are now handled in ContactGroupDetailView (tap to view).
-            break
-
-        case (.calendar(_, _), _):
-            // Calendar actions are now handled in CalendarGroupDetailView (tap to open).
-            break
-
-        default:
-            break
-        }
-    }
 }
 
-// MARK: - ResultsListView and details
-enum ResultsAction {
-    case deleteAll
-    case merge
-}
-
+// MARK: - ResultsListView and details (Locate-only; no delete/merge)
 struct ResultsListView: View {
     @EnvironmentObject var scanner: ScannerManager
-    var onAction: (ResultsAction, Int, Int) -> Void
     @Environment(\.presentationMode) var presentation
 
     var body: some View {
@@ -752,32 +738,24 @@ struct ResultsListView: View {
                         switch bucket {
                         case .media(_, let groups):
                             ForEach(Array(groups.enumerated()), id: \.offset) { gidx, group in
-                                HStack {
-                                    NavigationLink(destination: MediaGroupDetailView(localIdentifiers: group)) {
-                                        Text("Group \(gidx + 1) (\(group.count) items)")
-                                    }
+                                NavigationLink(destination: MediaGroupDetailView(localIdentifiers: group)) {
+                                    Text("Group \(gidx + 1) (\(group.count) items)")
                                 }
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    Button(role: .destructive) { onAction(.deleteAll, idx, gidx) } label: { Label("Delete", systemImage: "trash") }
-                                }
+                                // NO swipe actions — tapping navigates to occurrence
                             }
                         case .contact(_, let groups):
                             ForEach(Array(groups.enumerated()), id: \.offset) { gidx, group in
-                                HStack {
-                                    NavigationLink(destination: ContactGroupDetailView(group: group).environmentObject(scanner)) {
-                                        Text("Group \(gidx + 1) (\(group.count) contacts)")
-                                    }
+                                NavigationLink(destination: ContactGroupDetailView(group: group).environmentObject(scanner)) {
+                                    Text("Group \(gidx + 1) (\(group.count) contacts)")
                                 }
-                                // no merge/delete swipe actions here in this simplified flow
+                                // Contacts detail handles safe view/merge flows
                             }
                         case .calendar(_, let groups):
                             ForEach(Array(groups.enumerated()), id: \.offset) { gidx, group in
-                                HStack {
-                                    NavigationLink(destination: CalendarGroupDetailView(group: group).environmentObject(scanner)) {
-                                        Text("Group \(gidx + 1) (\(group.count) events)")
-                                    }
+                                NavigationLink(destination: CalendarGroupDetailView(group: group).environmentObject(scanner)) {
+                                    Text("Group \(gidx + 1) (\(group.count) events)")
                                 }
-                                // no destructive swipe here in this default UI
+                                // NO swipe actions — tapping navigates to occurrence (Calendar)
                             }
                         }
                     }
@@ -813,6 +791,7 @@ struct MediaGroupDetailView: View {
                     }
                     Spacer()
                     Button(action: {
+                        // Open Photos app so the user can inspect the asset in their Photos library
                         if let url = URL(string: "photos-redirect://") {
                             UIApplication.shared.open(url, options: [:], completionHandler: nil)
                         }
@@ -863,6 +842,7 @@ struct ContactDetailView: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> UIViewController {
         let store = CNContactStore()
+        // fetch the required keys for CNContactViewController safely
         let requiredKeys: [CNKeyDescriptor] = [CNContactViewController.descriptorForRequiredKeys()] as [CNKeyDescriptor]
 
         do {
@@ -881,7 +861,7 @@ struct ContactDetailView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
 }
 
-// Contact group detail now only shows contacts and allows tapping to view in the safe contact view controller.
+// Contact group detail only shows contacts and allows tapping to view in the safe contact view controller.
 struct ContactGroupDetailView: View {
     @EnvironmentObject var scanner: ScannerManager
     @Environment(\.presentationMode) var presentation
@@ -912,6 +892,7 @@ struct ContactGroupDetailView: View {
 }
 
 // Calendar group detail: show events; tapping opens Calendar (calshow:)
+// NOTE: No Delete button here — user is taken to Calendar to act on the event.
 struct CalendarGroupDetailView: View {
     @EnvironmentObject var scanner: ScannerManager
     @Environment(\.presentationMode) var presentation
@@ -930,6 +911,7 @@ struct CalendarGroupDetailView: View {
             }
         }
         .navigationTitle("Duplicate Events")
+        // intentionally no destructive actions here — the user is taken to Calendar to inspect/manage
     }
 
     private func openInCalendar(event: EKEvent) {

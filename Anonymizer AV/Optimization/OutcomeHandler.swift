@@ -1,6 +1,6 @@
 //
 // OutcomeHandler.swift
-// Centralized safe operations: backup, commit (delete/merge), undo
+// Centralized safe operations: backup-only, audit trail, restore guidance
 //
 
 import Foundation
@@ -9,9 +9,9 @@ import Photos
 import EventKit
 import UIKit
 
-// Single source-of-truth notification name
+// Single source-of-truth notification name (kept for non-destructive events only)
 extension Notification.Name {
-    static let didCommitOutcomeAction = Notification.Name("didCommitOutcomeAction")
+    static let didCreateBackupRecord = Notification.Name("didCreateBackupRecord")
 }
 
 // MARK: - Outcome model types
@@ -23,8 +23,6 @@ enum OutcomeType: String, Codable {
 }
 
 enum OutcomeActionKind: String, Codable {
-    case delete
-    case merge
     case backupOnly
 }
 
@@ -38,7 +36,7 @@ struct ActionRecord: Codable, Identifiable {
     let itemsPreview: [String]
 }
 
-// MARK: - OutcomeHandler
+// MARK: - OutcomeHandler (backup-only, no destructive operations)
 final class OutcomeHandler {
     static let shared = OutcomeHandler()
     private init() { loadRecords() }
@@ -76,6 +74,8 @@ final class OutcomeHandler {
             if let data = try? JSONEncoder().encode(self.actionRecordsCache) {
                 try? data.write(to: self.recordsURL, options: .atomic)
             }
+            // notify optionally that a backup record was created
+            NotificationCenter.default.post(name: .didCreateBackupRecord, object: r)
         }
     }
 
@@ -92,16 +92,7 @@ final class OutcomeHandler {
         }
     }
 
-    // MARK: - Merge concurrency guard
-    private var mergesInProgress = Set<String>()
-    private let mergesQueue = DispatchQueue(label: "OutcomeHandler.merges")
-
-    private func mergeKey(base: CNContact, duplicates: [CNContact]) -> String {
-        let dupIds = duplicates.map { $0.identifier }.sorted().joined(separator: ",")
-        return "\(base.identifier)|\(dupIds)"
-    }
-
-    // MARK: - Contacts: backup (vCard) + merge wrapper
+    // MARK: - Contacts: backup (vCard)
     /// Backup contacts to a vCard file and return ActionRecord (does not alter store)
     func backupContacts(_ contacts: [CNContact]) async throws -> ActionRecord {
         let data = try CNContactVCardSerialization.data(with: contacts)
@@ -119,145 +110,7 @@ final class OutcomeHandler {
         return rec
     }
 
-    /// Commit merge with concurrency guard (still available if you want to enable merges later)
-    func commitMergeContacts(base: CNContact, duplicates: [CNContact]) async throws -> ActionRecord {
-        guard !duplicates.isEmpty else {
-            throw NSError(domain: "OutcomeHandler", code: 400, userInfo: [NSLocalizedDescriptionKey: "No duplicates provided"])
-        }
-
-        let key = mergeKey(base: base, duplicates: duplicates)
-        var already = false
-        mergesQueue.sync {
-            if mergesInProgress.contains(key) { already = true }
-            else { mergesInProgress.insert(key) }
-        }
-        if already {
-            throw NSError(domain: "OutcomeHandler", code: 409, userInfo: [NSLocalizedDescriptionKey: "Merge already in progress"])
-        }
-        defer {
-            mergesQueue.async { [weak self] in self?.mergesInProgress.remove(key) }
-        }
-
-        // create backup first
-        let contacts = [base] + duplicates
-        let backupRec = try await backupContacts(contacts)
-
-        // ensure permissions
-        let store = CNContactStore()
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            store.requestAccess(for: .contacts) { granted, error in
-                if let e = error { cont.resume(throwing: e); return }
-                if granted { cont.resume(returning: ()) } else {
-                    cont.resume(throwing: NSError(domain: "OutcomeHandler", code: 2, userInfo: [NSLocalizedDescriptionKey: "Contacts permission denied"]))
-                }
-            }
-        }
-
-        // perform merge with one retry on transient XPC invalidation
-        var lastError: Error?
-        for attempt in 1...2 {
-            do {
-                try performMergeSync(base: base, duplicates: duplicates)
-                lastError = nil
-                break
-            } catch {
-                lastError = error
-                let msg = (error as NSError).localizedDescription
-                if msg.contains("XPC connection was invalidated") && attempt == 1 {
-                    try? await Task.sleep(nanoseconds: 250_000_000)
-                    continue
-                } else {
-                    throw NSError(domain: "OutcomeHandler", code: 500, userInfo: [NSLocalizedDescriptionKey: "Merge failed: \(msg)"])
-                }
-            }
-        }
-
-        let rec = ActionRecord(id: UUID(),
-                               type: .contacts,
-                               kind: .merge,
-                               timestamp: Date(),
-                               summary: "Merged \(duplicates.count) contacts into \(base.givenName) \(base.familyName)",
-                               payload: ["backupPath": backupRec.payload["backupPath"] ?? ""],
-                               itemsPreview: [base.givenName + " " + base.familyName])
-        saveRecord(rec)
-
-        NotificationCenter.default.post(name: .didCommitOutcomeAction, object: rec)
-        return rec
-    }
-
-    /// Synchronous merge implementation (throws)
-    private func performMergeSync(base: CNContact, duplicates: [CNContact]) throws {
-        let store = CNContactStore()
-        let keys: [CNKeyDescriptor] = [CNContactPhoneNumbersKey, CNContactEmailAddressesKey, CNContactGivenNameKey, CNContactFamilyNameKey, CNContactIdentifierKey] as [CNKeyDescriptor]
-        guard let fetchedBase = try? store.unifiedContact(withIdentifier: base.identifier, keysToFetch: keys),
-              let mutableBase = try? fetchedBase.mutableCopy() as? CNMutableContact else {
-            throw NSError(domain: "OutcomeHandler", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unable to fetch or mutate base contact"])
-        }
-
-        func normalizePhone(_ raw: String) -> String { String(raw.filter { $0.isNumber }.suffix(11)) }
-        func normalizeEmail(_ raw: String) -> String { raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-
-        var existingPhones = Set(mutableBase.phoneNumbers.map { normalizePhone($0.value.stringValue) })
-        var existingEmails = Set(mutableBase.emailAddresses.map { normalizeEmail(String($0.value)) })
-
-        let saveReq = CNSaveRequest()
-        for dup in duplicates {
-            if dup.identifier == base.identifier { continue }
-            for phone in dup.phoneNumbers {
-                let raw = phone.value.stringValue
-                let n = normalizePhone(raw)
-                if n.isEmpty || existingPhones.contains(n) { continue }
-                mutableBase.phoneNumbers.append(phone)
-                existingPhones.insert(n)
-            }
-            for em in dup.emailAddresses {
-                let raw = String(em.value)
-                let n = normalizeEmail(raw)
-                if n.isEmpty || existingEmails.contains(n) { continue }
-                mutableBase.emailAddresses.append(em)
-                existingEmails.insert(n)
-            }
-            if let dupFetched = try? store.unifiedContact(withIdentifier: dup.identifier, keysToFetch: [CNContactIdentifierKey] as [CNKeyDescriptor]),
-               let dupMutable = try? dupFetched.mutableCopy() as? CNMutableContact {
-                saveReq.delete(dupMutable)
-            } else if let dupMutable = try? dup.mutableCopy() as? CNMutableContact {
-                saveReq.delete(dupMutable)
-            }
-        }
-        saveReq.update(mutableBase)
-        try store.execute(saveReq)
-    }
-
-    /// Delete contacts (caller should backup first)
-    func deleteContacts(_ contacts: [CNContact]) async throws {
-        let store = CNContactStore()
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            store.requestAccess(for: .contacts) { granted, error in
-                if let e = error { cont.resume(throwing: e); return }
-                if granted { cont.resume(returning: ()) } else {
-                    cont.resume(throwing: NSError(domain: "OutcomeHandler", code: 2, userInfo: [NSLocalizedDescriptionKey: "Contacts permission denied"]))
-                }
-            }
-        }
-
-        let saveReq = CNSaveRequest()
-        for c in contacts {
-            if let fetched = try? store.unifiedContact(withIdentifier: c.identifier, keysToFetch: [CNContactIdentifierKey] as [CNKeyDescriptor]),
-               let m = try? fetched.mutableCopy() as? CNMutableContact {
-                saveReq.delete(m)
-            } else if let m = try? c.mutableCopy() as? CNMutableContact {
-                saveReq.delete(m)
-            }
-        }
-
-        try store.execute(saveReq)
-
-        let rec = ActionRecord(id: UUID(), type: .contacts, kind: .delete, timestamp: Date(), summary: "Deleted \(contacts.count) contacts", payload: [:], itemsPreview: contacts.prefix(8).map { "\($0.givenName) \($0.familyName)" })
-        saveRecord(rec)
-        NotificationCenter.default.post(name: .didCommitOutcomeAction, object: rec)
-    }
-
-    // MARK: - Files backup/delete
+    // MARK: - Files backup (copy)
     func backupFiles(_ urls: [URL]) async throws -> ActionRecord {
         var preview: [String] = []
         let folder = backupDirectory.appendingPathComponent("files-\(UUID().uuidString)", isDirectory: true)
@@ -272,34 +125,28 @@ final class OutcomeHandler {
         return rec
     }
 
-    func commitDeleteFiles(_ urls: [URL]) async throws -> ActionRecord {
-        let backupRecord = try await backupFiles(urls)
-        for url in urls { try? FileManager.default.removeItem(at: url) }
-        let rec = ActionRecord(id: UUID(), type: .files, kind: .delete, timestamp: Date(), summary: "Deleted \(urls.count) files", payload: ["backupFolder": backupRecord.payload["backupFolder"] ?? ""], itemsPreview: urls.prefix(8).map { $0.lastPathComponent })
-        saveRecord(rec)
-        NotificationCenter.default.post(name: .didCommitOutcomeAction, object: rec)
-        return rec
-    }
-
-    func undoFilesDelete(record: ActionRecord) async throws {
+    /// Restore files from a backup record (best-effort copy back into Documents)
+    func restoreFilesFromBackup(record: ActionRecord) throws {
         guard let folderPath = record.payload["backupFolder"] else {
-            throw NSError(domain: "OutcomeHandler", code: 2, userInfo: [NSLocalizedDescriptionKey: "No backup folder"])
+            throw NSError(domain: "OutcomeHandler", code: 2, userInfo: [NSLocalizedDescriptionKey: "No backup folder found in record"])
         }
         let folder = URL(fileURLWithPath: folderPath, isDirectory: true)
         let fm = FileManager.default
+        let destBase = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
         guard let items = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) else { return }
         for src in items {
-            let dest = fm.urls(for: .documentDirectory, in: .userDomainMask).first!.appendingPathComponent(src.lastPathComponent)
+            let dest = destBase.appendingPathComponent(src.lastPathComponent)
             if fm.fileExists(atPath: dest.path) {
-                let dest2 = dest.deletingPathExtension().appendingPathExtension("restored.\(UUID().uuidString).\(dest.pathExtension)")
-                try? fm.copyItem(at: src, to: dest2)
+                // existing file — create a unique restored copy
+                let restored = dest.deletingPathExtension().appendingPathExtension("restored.\(UUID().uuidString).\(dest.pathExtension)")
+                try? fm.copyItem(at: src, to: restored)
             } else {
                 try? fm.copyItem(at: src, to: dest)
             }
         }
     }
 
-    // MARK: - Media backup/delete
+    // MARK: - Media backup (to album)
     func backupMediaAssets(localIdentifiers: [String], albumNamePrefix: String = "Anonymizer Backup") async throws -> ActionRecord {
         let albumName = "\(albumNamePrefix) \(Date())"
         var albumLocalId: String?
@@ -339,32 +186,7 @@ final class OutcomeHandler {
         return rec
     }
 
-    func commitDeleteMedia(localIdentifiers: [String]) async throws -> ActionRecord {
-        let backup = try await backupMediaAssets(localIdentifiers: localIdentifiers)
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            PHPhotoLibrary.shared().performChanges({
-                let assets = PHAsset.fetchAssets(withLocalIdentifiers: localIdentifiers, options: nil)
-                PHAssetChangeRequest.deleteAssets(assets)
-            }, completionHandler: { success, error in
-                if let e = error { cont.resume(throwing: e); return }
-                cont.resume(returning: ())
-            })
-        }
-        let rec = ActionRecord(id: UUID(), type: .media, kind: .delete, timestamp: Date(), summary: "Deleted \(localIdentifiers.count) media", payload: backup.payload, itemsPreview: Array(localIdentifiers.prefix(8)))
-        saveRecord(rec)
-        NotificationCenter.default.post(name: .didCommitOutcomeAction, object: rec)
-        return rec
-    }
-
-    func undoMediaDelete(record: ActionRecord) async throws {
-        // Best-effort guidance only — recommend user restore from backup album in Photos app
-        guard let albumId = record.payload["albumId"] else {
-            throw NSError(domain: "OutcomeHandler", code: 4, userInfo: [NSLocalizedDescriptionKey: "No album info for undo"])
-        }
-        print("[OutcomeHandler] undoMediaDelete: backup album \(albumId)")
-    }
-
-    // MARK: - Calendar backup/delete
+    // MARK: - Calendar backup (ICS)
     func backupCalendarEvents(_ events: [EKEvent]) async throws -> ActionRecord {
         func eventToICS(_ e: EKEvent) -> String {
             let formatter = DateFormatter()
@@ -393,46 +215,44 @@ final class OutcomeHandler {
         return rec
     }
 
-    func commitDeleteCalendarEvents(_ events: [EKEvent]) async throws -> ActionRecord {
-        let backup = try await backupCalendarEvents(events)
-        let store = EKEventStore()
-        for e in events { try store.remove(e, span: .futureEvents, commit: false) }
-        try store.commit()
-        let rec = ActionRecord(id: UUID(), type: .calendar, kind: .delete, timestamp: Date(), summary: "Deleted \(events.count) events", payload: backup.payload, itemsPreview: events.prefix(8).map { $0.title ?? "Untitled" })
-        saveRecord(rec)
-        NotificationCenter.default.post(name: .didCommitOutcomeAction, object: rec)
-        return rec
-    }
-
-    // MARK: - Undo generic
-    func undo(_ record: ActionRecord) async throws {
-        switch record.type {
-        case .contacts:
-            if record.kind == .delete || record.kind == .merge {
-                if let bp = record.payload["backupPath"] {
-                    let url = URL(fileURLWithPath: bp)
-                    let data = try Data(contentsOf: url)
-                    let contacts = try CNContactVCardSerialization.contacts(with: data)
-                    let store = CNContactStore()
-                    let saveReq = CNSaveRequest()
-                    for c in contacts {
-                        if let mutable = try? c.mutableCopy() as? CNMutableContact {
-                            saveReq.add(mutable, toContainerWithIdentifier: nil)
-                        }
-                    }
-                    try store.execute(saveReq)
-                } else {
-                    throw NSError(domain: "OutcomeHandler", code: 10, userInfo: [NSLocalizedDescriptionKey: "No backup vCard found"])
-                }
-            }
-        case .files:
-            try await undoFilesDelete(record: record)
-        case .media:
-            try await undoMediaDelete(record: record)
-        case .calendar:
-            if let bp = record.payload["backupPath"] {
-                print("[OutcomeHandler] ICS backup at \(bp). Manual import recommended.")
+    /// NEW: Backup calendar events by identifiers (safe wrapper). Fetches events from a fresh EKEventStore, then creates ICS backup.
+    func backupCalendarEventsByIdentifiers(_ identifiers: [String]) async throws -> ActionRecord {
+        var eventsToBackup: [EKEvent] = []
+        // Use main actor / fresh store to avoid XPC issues
+        await MainActor.run {
+            let store = EKEventStore()
+            for id in identifiers {
+                if let e = store.event(withIdentifier: id) {
+                    eventsToBackup.append(e)
+                } // else just skip missing ones
             }
         }
+        return try await backupCalendarEvents(eventsToBackup)
+    }
+
+    // MARK: - Restore helper (contacts & calendar guidance)
+    /// Restore contacts from a backup ActionRecord (vCard).
+    /// This is a non-destructive add-back: it will import contacts from the vCard file.
+    func restoreContactsFromBackup(record: ActionRecord) throws {
+        guard let bp = record.payload["backupPath"] else {
+            throw NSError(domain: "OutcomeHandler", code: 10, userInfo: [NSLocalizedDescriptionKey: "No backup vCard found"])
+        }
+        let url = URL(fileURLWithPath: bp)
+        let data = try Data(contentsOf: url)
+        let contacts = try CNContactVCardSerialization.contacts(with: data)
+        let store = CNContactStore()
+        let saveReq = CNSaveRequest()
+        for c in contacts {
+            if let mutable = try? c.mutableCopy() as? CNMutableContact {
+                saveReq.add(mutable, toContainerWithIdentifier: nil)
+            }
+        }
+        try store.execute(saveReq)
+    }
+
+    /// Guidance for restoring calendar backups: we keep an ICS file path in the record payload.
+    /// We do not attempt automatic import here — the ICS can be presented to the user or shared.
+    func calendarBackupPath(for record: ActionRecord) -> String? {
+        return record.payload["backupPath"]
     }
 }
