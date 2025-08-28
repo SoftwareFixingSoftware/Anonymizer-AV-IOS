@@ -4,25 +4,22 @@ import os.log
 
 /// Antivirus signature scanner: loads MD5 signatures and supports heuristic analysis.
 final class SignatureScanner {
-    
+
     private static var md5Signatures: [String: String] = [:] // Key: md5:size
     private static var loaded = false
     private static let log = OSLog(subsystem: "com.luke.anonymizer", category: "SignatureScanner")
-    
-    private static let prefs = UserDefaults.standard
-    private static let keyHeuristicEnabled = "heuristic_enabled"
-    
+
     /// Load signatures from main.hdb (must be included in app bundle).
     /// Format: MD5:SIZE:THREAT_NAME
     static func loadSignatures() {
         guard !loaded else { return }
-        
+
         guard let url = Bundle.main.url(forResource: "main", withExtension: "hdb") else {
             os_log("main.hdb not found in bundle", log: log, type: .error)
             ScanningLogger.shared.logSignatureError(NSError(domain: "SignatureError", code: -1, userInfo: [NSLocalizedDescriptionKey: "main.hdb not found in bundle"]))
             return
         }
-        
+
         do {
             let data = try String(contentsOf: url, encoding: .utf8)
             data.enumerateLines { line, _ in
@@ -42,20 +39,20 @@ final class SignatureScanner {
             ScanningLogger.shared.logSignatureError(error)
         }
     }
-    
+
     /// Compute MD5 hash of given data.
     private static func computeMD5(data: Data) -> String {
         let digest = Insecure.MD5.hash(data: data)
         return digest.map { String(format: "%02x", $0) }.joined()
     }
-    
+
     /// Scan a memory buffer for signature matches.
     static func scanBytes(buffer: Data) -> String? {
         let hash = computeMD5(data: buffer)
         let key = "\(hash):\(buffer.count)"
         return md5Signatures[key]
     }
-    
+
     /// Scan using precomputed MD5 hash + file size.
     static func scanHash(md5Hex: String, size: Int) -> String? {
         let key = "\(md5Hex.lowercased()):\(size)"
@@ -67,7 +64,7 @@ final class SignatureScanner {
         }
         return result
     }
-    
+
     /// Log MD5 hash for a file
     static func logMD5Hash(for fileURL: URL, hash: String, size: Int) {
         os_log("File: %@, MD5: %@, Size: %d",
@@ -77,7 +74,7 @@ final class SignatureScanner {
                hash,
                size)
     }
-    
+
     /// Legacy compatibility: match by MD5 only (first hit ignoring file size).
     /// ⚠️ Use `scanHash` whenever possible.
     static func match(_ md5Hex: String) -> String? {
@@ -88,22 +85,23 @@ final class SignatureScanner {
         }
         return nil
     }
-    
+
     /// Heuristic result wrapper
     struct HeuristicResult {
         let suspicious: Bool
         let reason: String
     }
-    
-    /// Heuristic scanning (enabled/disabled via UserDefaults).
-    static func scanWithHeuristicsEnabledCheck(fileName: String, buffer: Data) -> HeuristicResult? {
-        let heuristicEnabled = prefs.bool(forKey: keyHeuristicEnabled) || !prefs.contains(key: keyHeuristicEnabled)
-        
+
+    /// Heuristic scanning (consults HeuristicsManager; default = disabled).
+     static func scanWithHeuristicsEnabledCheck(fileName: String, buffer: Data) -> HeuristicResult? {
+        // Use synchronous helper so this function remains sync and can be called from background threads.
+        let heuristicEnabled = HeuristicsManager.shared.isEnabledSync()
+
         guard heuristicEnabled else {
             os_log("Heuristic scanning disabled", log: log, type: .debug)
             return nil
         }
-        
+
         let scanner = HeuristicScanner()
         let result = scanner.analyzeHeuristics(fileName: fileName, buffer: buffer)
         if result.suspicious {
@@ -112,58 +110,58 @@ final class SignatureScanner {
         }
         return nil
     }
-    
+
+
     /// Advanced heuristic scanner.
     final class HeuristicScanner {
-        
         func analyzeHeuristics(fileName: String, buffer: Data) -> HeuristicResult {
             let lowerFile = fileName.lowercased()
             let preview = String(data: buffer.prefix(4096), encoding: .utf8)?.lowercased() ?? ""
             let entropy = calculateEntropy(buffer: buffer)
-            
+
             // 1. Filename indicators
             if lowerFile.contains("keylogger") || lowerFile.contains("stealer") || lowerFile.contains("rat") {
                 return HeuristicResult(suspicious: true, reason: "Suspicious filename pattern")
             }
-            
+
             // 2. Entropy anomalies
             if isEntropySuspicious(fileName: lowerFile, entropy: entropy) {
                 return HeuristicResult(suspicious: true, reason: "High entropy for file type")
             }
-            
+
             // 3. Fake extension
             if hasFakeExtension(fileName: lowerFile, buffer: buffer) {
                 return HeuristicResult(suspicious: true, reason: "Fake extension with mismatched header")
             }
-            
+
             // 4. Suspicious keywords
             if containsSuspiciousKeywords(preview) {
                 return HeuristicResult(suspicious: true, reason: "Suspicious scripting content")
             }
-            
+
             // 5. Packer detection
             if preview.contains("upx") && preview.contains("packed") {
                 return HeuristicResult(suspicious: true, reason: "UPX packer detected")
             }
-            
+
             // 6. Dropper behavior
             if preview.contains("drop") && preview.contains(".exe") {
                 return HeuristicResult(suspicious: true, reason: "Dropper behavior detected")
             }
-            
+
             // 7. Self-modifying code
             if preview.contains(".text") && preview.contains(".data") && preview.contains("virtualalloc") {
                 return HeuristicResult(suspicious: true, reason: "Self-modifying code behavior")
             }
-            
+
             // 8. Obfuscated env manipulation
             if preview.contains("set ") && preview.contains("%") && preview.contains("=") {
                 return HeuristicResult(suspicious: true, reason: "Obfuscated environment variable usage")
             }
-            
+
             return HeuristicResult(suspicious: false, reason: "Clean")
         }
-        
+
         private func isEntropySuspicious(fileName: String, entropy: Double) -> Bool {
             if fileName.hasSuffix(".jpg") || fileName.hasSuffix(".jpeg") || fileName.hasSuffix(".png") {
                 return entropy > 8.5
@@ -176,7 +174,7 @@ final class SignatureScanner {
             }
             return entropy > 8.0
         }
-        
+
         private func hasFakeExtension(fileName: String, buffer: Data) -> Bool {
             if fileName.hasSuffix(".jpg") {
                 return !buffer.starts(with: [0xFF, 0xD8])
@@ -189,7 +187,7 @@ final class SignatureScanner {
             }
             return false
         }
-        
+
         private func containsSuspiciousKeywords(_ content: String) -> Bool {
             return content.contains("powershell") ||
                    content.contains("base64") ||
@@ -202,7 +200,7 @@ final class SignatureScanner {
                    content.contains("eval(") ||
                    content.contains("document.write")
         }
-        
+
         private func calculateEntropy(buffer: Data) -> Double {
             var freq = [Int](repeating: 0, count: 256)
             for byte in buffer {

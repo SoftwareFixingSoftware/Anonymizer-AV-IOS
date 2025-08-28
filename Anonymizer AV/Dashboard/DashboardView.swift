@@ -7,6 +7,10 @@ import SwiftUI
 import Charts
 import Darwin
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 struct DashboardView: View {
     @Binding var selectedTab: Int
 
@@ -50,6 +54,39 @@ struct DashboardView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    // App logo at top (centered). fallback to system symbol if missing.
+                    HStack {
+                        Spacer()
+                        Group {
+                            #if canImport(UIKit)
+                            if let ui = UIImage(named: "app_logo") {
+                                Image(uiImage: ui)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 180, height: 120)
+                            } else if let ui = UIImage(named: "anonymizer_av_logo") {
+                                Image(uiImage: ui)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 96, height: 96)
+                            } else {
+                                Image(systemName: "shield.lefthalf.fill")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 72, height: 72)
+                                    .foregroundColor(.accentColor)
+                            }
+                            #else
+                            Image("app_logo")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 96, height: 96)
+                            #endif
+                        }
+                        Spacer()
+                    }
+                    .padding(.top, 12)
+
                     QuarantineCard {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(lastScan)
