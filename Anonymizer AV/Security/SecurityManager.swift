@@ -1,52 +1,30 @@
-// ------------------------------------------------------------
 // SecurityManager.swift
-// Handles delete and quarantine actions
-// ------------------------------------------------------------
-
+// Small adapter around QuarantineManager
 import Foundation
 
 final class SecurityManager {
     static let shared = SecurityManager()
     private init() {}
 
-    // MARK: - Delete File
-    func deleteFile(_ url: URL) -> Bool {
-        do {
-            if FileManager.default.fileExists(atPath: url.path) {
-                try FileManager.default.removeItem(at: url)
-                print("File deleted: \(url.path)")
-                return true
-            } else {
-                print("Delete failed: File not found at \(url.path)")
-                return false
-            }
-        } catch {
-            print("Delete failed: \(error)")
-            return false
-        }
-    }
-
-    // MARK: - Move to Quarantine
+    /// Quarantine using a security-scoped URL when available.
     func moveToQuarantine(_ url: URL, classification: String, reason: String) -> Bool {
-        let manager = QuarantineManager.shared
-        return manager.quarantineFile(
-            at: url.path,
-            classification: classification,
-            reason: reason
-        )
+        return QuarantineManager.shared.quarantineFile(url: url, classification: classification, reason: reason)
     }
 
-    // MARK: - Restore from Quarantine
+    /// Compatibility: path-based API — converts to a file:// URL and calls the URL-based overload.
+    func moveToQuarantine(atPath path: String, classification: String, reason: String) -> Bool {
+        let url = URL(fileURLWithPath: path)
+        return QuarantineManager.shared.quarantineFile(url: url, classification: classification, reason: reason)
+    }
+
     func restoreFromQuarantine(id: UUID) -> Bool {
         return QuarantineManager.shared.restoreFile(id: id)
     }
 
-    // MARK: - Delete from Quarantine
     func deleteFromQuarantine(id: UUID) -> Bool {
         return QuarantineManager.shared.deleteFile(id: id)
     }
 
-    // MARK: - List Quarantined
     func listQuarantined() -> [QuarantineEntity] {
         return QuarantineManager.shared.listQuarantined()
     }

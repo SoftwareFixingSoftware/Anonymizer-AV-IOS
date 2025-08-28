@@ -263,13 +263,33 @@ struct DashboardView: View {
 
     private func loadLastScan() {
         let logs = ScanLogManager.getLogs()
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        // We'll accept multiple separators and multiple date formats.
+        var datedLogs: [(Date, String)] = []
 
-        let datedLogs: [(Date, String)] = logs.compactMap { log in
-            let components = log.components(separatedBy: " — ")
-            guard components.count == 2, let date = formatter.date(from: components[0]) else { return nil }
-            return (date, components[1])
+        for log in logs {
+            let trimmed = log.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            // Try to split into date part and details using a set of separators
+            if let (dateStr, details) = splitLogEntry(trimmed) {
+                if let date = parseDate(from: dateStr) {
+                    datedLogs.append((date, details))
+                } else {
+                    // couldn't parse date — try to log for debugging and skip
+                    print("DashboardView.loadLastScan: failed to parse date '\(dateStr)' in log: '\(trimmed)'")
+                }
+            } else {
+                // Fallback: try to parse the first N characters as a timestamp (common fixed-length)
+                // e.g. "2025-08-29 12:34:56 rest..."
+                let prefixLen = min(19, trimmed.count)
+                let prefix = String(trimmed.prefix(prefixLen))
+                if let date = parseDate(from: prefix) {
+                    let details = trimmed.dropFirst(prefixLen).trimmingCharacters(in: .whitespacesAndNewlines)
+                    datedLogs.append((date, details))
+                } else {
+                    print("DashboardView.loadLastScan: could not split log entry: '\(trimmed)'")
+                }
+            }
         }
 
         if let latest = datedLogs.sorted(by: { $0.0 < $1.0 }).last {
@@ -284,14 +304,89 @@ struct DashboardView: View {
         }
     }
 
-    private func extractThreats(from details: String) -> Int {
-        let parts = details.components(separatedBy: " ")
-        for (i, part) in parts.enumerated() {
-            if part.lowercased().contains("threat"), i > 0 {
-                return Int(parts[i-1]) ?? 0
+    /// Try several separators and return (dateString, details) if any match.
+    private func splitLogEntry(_ log: String) -> (String, String)? {
+        let separators = [" — ", " - ", "—", " - ", "|"]
+        for sep in separators {
+            if let range = log.range(of: sep) {
+                let d = String(log[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let details = String(log[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                return (d, details)
             }
         }
+        return nil
+    }
+
+    /// Parse date from a string using several common formats; fallback to ISO8601.
+    private func parseDate(from s: String) -> Date? {
+        let formats = [
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm:ssZ",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
+            "yyyy-MM-dd HH:mm:ss Z"
+        ]
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+
+        for f in formats {
+            formatter.dateFormat = f
+            if let d = formatter.date(from: s) { return d }
+        }
+
+        // try ISO8601 fallback
+        if #available(iOS 10.0, *) {
+            let iso = ISO8601DateFormatter()
+            if let d = iso.date(from: s) { return d }
+        }
+
+        return nil
+    }
+
+    private func extractThreats(from details: String) -> Int {
+        // Look for common patterns like:
+        // "3 threats", "3 threat", "threats: 3", "threat: 3", "Found 3 threats", etc.
+        let lower = details.lowercased()
+
+        // 1) Try regex: number before the word (e.g. "3 threats")
+        if let n = firstMatchNumber(pattern: "(?i)(\\d+)\\s*(?:threats?|threat)\\b", in: lower) {
+            return n
+        }
+
+        // 2) Try regex: number after the word (e.g. "threats: 3")
+        if let n2 = firstMatchNumber(pattern: "(?i)(?:threats?|threat)\\D{0,8}(\\d+)", in: lower) {
+            return n2
+        }
+
+        // 3) Fallback: try to find any integer in the details that appears near the word 'threat'
+        if let idx = lower.range(of: "threat") {
+            // take 20 chars window before the match and try to capture a number
+            let start = lower.startIndex
+            let preWindowStart = lower.index(idx.lowerBound, offsetBy: -20, limitedBy: start) ?? start
+            let window = String(lower[preWindowStart..<idx.upperBound])
+            if let n3 = firstMatchNumber(pattern: "(\\d+)", in: window) {
+                return n3
+            }
+        }
+
+        // nothing found
         return 0
+    }
+
+    private func firstMatchNumber(pattern: String, in text: String) -> Int? {
+        do {
+            let re = try NSRegularExpression(pattern: pattern, options: [])
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            if let m = re.firstMatch(in: text, options: [], range: range) {
+                if m.numberOfRanges >= 2, let r = Range(m.range(at: 1), in: text) {
+                    let substr = String(text[r]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    return Int(substr)
+                }
+            }
+        } catch {
+            print("DashboardView.firstMatchNumber: regex error: \(error)")
+        }
+        return nil
     }
 }
 

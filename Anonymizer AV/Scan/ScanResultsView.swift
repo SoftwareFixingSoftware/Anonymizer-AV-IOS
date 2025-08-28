@@ -37,13 +37,17 @@ struct ScanResultsView: View {
                                             .foregroundColor(.red)
 
                                         HStack {
+                                            // Only allow Delete on files inside our app container
+                                            #if os(iOS)
+                                            if isInsideAppContainer(item.fileURL) {
+                                                Button("Delete") { delete(url: item.fileURL) }
+                                            }
+                                            #else
                                             Button("Delete") { delete(url: item.fileURL) }
+                                            #endif
+
                                             Button("Quarantine") {
-                                                quarantine(
-                                                    url: item.fileURL,
-                                                    classification: item.category,
-                                                    reason: item.threatName
-                                                )
+                                                quarantine(url: item.fileURL, classification: item.category, reason: item.threatName)
                                             }
                                         }
                                         .font(.caption)
@@ -58,16 +62,10 @@ struct ScanResultsView: View {
             }
 
             Button("Scan Again") {
-                // 1) Tell navigation to hide results so the NavigationStack can pop this view.
                 scanSession.showResults = false
-
-                // 2) After the Results view is popped (next run loop), fully reset session so user can pick new files.
                 DispatchQueue.main.async {
                     scanSession.reset()
                 }
-
-                // 3) Defensive dismiss in case this view was presented modally anywhere.
-                //    If not needed in your setup it's harmless.
                 dismiss()
             }
             .padding()
@@ -83,18 +81,39 @@ struct ScanResultsView: View {
 
     private func delete(url: URL) {
         DispatchQueue.global().async {
-            let success = securityManager.deleteFile(url)
-            DispatchQueue.main.async {
-                if success { remove(url: url) }
+            // allow deleting only if inside app container
+            if isInsideAppContainer(url) {
+                var deleted = false
+                do {
+                    try FileManager.default.removeItem(at: url)
+                    deleted = true
+                    print("Deleted sandbox file: \(url.path)")
+                } catch {
+                    print("Failed to delete sandbox file: \(error)")
+                    deleted = false
+                }
+
+                DispatchQueue.main.async {
+                    if deleted { remove(url: url) }
+                }
+            } else {
+                DispatchQueue.main.async {
+                    print("Delete attempted on external file — not permitted.")
+                    // Optionally show an alert to the user
+                }
             }
         }
     }
 
     private func quarantine(url: URL, classification: String, reason: String) {
         DispatchQueue.global().async {
+            // Diagnostic: log raw URL and path
+            print("ScanResultsView: quarantining rawURL='\(url.absoluteString)' path='\(url.path)' isFileURL=\(url.isFileURL)")
+
             let success = securityManager.moveToQuarantine(url, classification: classification, reason: reason)
             DispatchQueue.main.async {
                 if success { remove(url: url) }
+                else { print("Quarantine failed for \(url.path)") }
             }
         }
     }
@@ -141,5 +160,10 @@ struct ScanResultsView: View {
         if lower.range(of: "\\.(jpg|jpeg|png|mp4|mkv)$", options: .regularExpression) != nil { return "Media Files" }
         if lower.range(of: "\\.(zip|rar|7z)$", options: .regularExpression) != nil { return "Archives" }
         return "Others"
+    }
+
+    private func isInsideAppContainer(_ url: URL) -> Bool {
+        let appDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return url.path.hasPrefix(appDir.path)
     }
 }

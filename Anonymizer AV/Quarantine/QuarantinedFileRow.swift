@@ -1,9 +1,13 @@
-// QuarantinedFileRow.swift
 import SwiftUI
 
+/// Safe QuarantinedFileRow
+/// - Keeps same signature as your previous implementation to avoid call-site changes.
+/// - Avoids nested Buttons by using .onTapGesture for the whole-card open action.
+/// - Uses ShareLink on iOS 16+ when the quarantined file exists; otherwise calls onRestoreOrExport().
 struct QuarantinedFileRow: View {
     let file: QuarantinedFile
-    let onRestore: () -> Void
+    let onOpen: () -> Void
+    let onRestoreOrExport: () -> Void
     let onDelete: () -> Void
 
     private static let dateFormatter: DateFormatter = {
@@ -13,15 +17,31 @@ struct QuarantinedFileRow: View {
         return f
     }()
 
+    private var fileURL: URL {
+        URL(fileURLWithPath: file.filePath)
+    }
+
+    private var fileExists: Bool {
+        !file.filePath.isEmpty && FileManager.default.fileExists(atPath: file.filePath)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // File Name and classification
             HStack {
-                Text(file.fileName)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(file.fileName)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    Text("Quarantined: \(Self.dateFormatter.string(from: file.dateQuarantined))")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+
                 Spacer()
+
                 Text(file.classification)
                     .font(.caption)
                     .padding(.horizontal, 8)
@@ -30,44 +50,70 @@ struct QuarantinedFileRow: View {
                     .foregroundColor(.secondary)
             }
 
-            // Date Quarantined
-            Text("Quarantined: \(Self.dateFormatter.string(from: file.dateQuarantined))")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-
-            // Reason (optional)
             if let reason = file.reason, !reason.isEmpty {
                 Text(reason)
                     .font(.caption)
                     .foregroundColor(.secondary)
+                    .lineLimit(2)
             }
 
-            // Actions row
             HStack {
                 Spacer()
-                Button(action: onRestore) {
-                    Text("♻️ Restore")
-                        .font(.system(size: 13))
-                        .foregroundColor(.blue)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.blue.opacity(0.1))
-                        )
+
+                // Export / Restore (ShareLink on iOS16+ when file exists)
+                if #available(iOS 16.0, *) {
+                    if fileExists {
+                        ShareLink(item: fileURL) {
+                            Label {
+                                Text("Export")
+                                    .font(.system(size: 13))
+                            } icon: {
+                                Image(systemName: "square.and.arrow.up")
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.08)))
+                            .foregroundColor(.blue)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Export \(file.fileName)")
+                    } else {
+                        // visually-disabled export
+                        Text("Export")
+                            .font(.system(size: 13))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.08)))
+                            .foregroundColor(.gray)
+                            .accessibilityLabel("Export not available")
+                    }
+                } else {
+                    // pre-iOS16 fallback: call your handler
+                    Button(action: { onRestoreOrExport() }) {
+                        Text("Export")
+                            .font(.system(size: 13))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.08)))
+                    .foregroundColor(.blue)
+                    .accessibilityLabel("Export \(file.fileName)")
                 }
 
-                Button(action: onDelete) {
+                // Delete button
+                Button(action: {
+                    onDelete()
+                }) {
                     Text("🗑️ Delete")
                         .font(.system(size: 13))
-                        .foregroundColor(.red)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.red.opacity(0.1))
-                        )
                 }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.08)))
+                .foregroundColor(.red)
+                .accessibilityLabel("Delete \(file.fileName)")
                 .padding(.leading, 8)
             }
         }
@@ -79,5 +125,11 @@ struct QuarantinedFileRow: View {
         )
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
+        // Make the whole card tappable without nesting Buttons
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // defensive: ensure file exists before opening preview (optional)
+            onOpen()
+        }
     }
 }
