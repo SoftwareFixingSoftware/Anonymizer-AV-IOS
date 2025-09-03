@@ -6,8 +6,7 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @StateObject private var session = SessionManager.shared
-    @State private var selectedTab: Int = 0 // Track active tab
+     @State private var selectedTab: Int = 0 // Track active tab
 
     var body: some View {
         TabView(selection: $selectedTab) {
